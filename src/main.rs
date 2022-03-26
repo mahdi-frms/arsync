@@ -6,15 +6,13 @@ fn print_help() {
 
 fn traverse_dir(dir: &String) -> Result<Vec<String>, std::io::Error> {
     let mut files = vec![];
-    for entry in read_dir(dir)? {
-        if let Ok(entry) = entry {
-            if let Ok(path) = entry.path().into_os_string().into_string() {
-                if let Ok(kind) = entry.file_type() {
-                    if kind.is_dir() {
-                        files.append(&mut traverse_dir(&path).unwrap_or(vec![]));
-                    } else if kind.is_file() {
-                        files.push(path);
-                    }
+    for entry in read_dir(dir)?.filter_map(|e| e.ok()) {
+        if let Ok(path) = entry.path().into_os_string().into_string() {
+            if let Ok(kind) = entry.file_type() {
+                if kind.is_dir() {
+                    files.append(&mut traverse_dir(&path).unwrap_or(vec![]));
+                } else if kind.is_file() {
+                    files.push(path);
                 }
             }
         }
