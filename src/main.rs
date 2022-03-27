@@ -107,11 +107,15 @@ fn main() {
         print_help();
         exit(1);
     }
-    let src = Path::new(&args[1])
-        .canonicalize()
-        .expect("invalid source directory path");
-    let dest = Path::new(&args[2])
-        .canonicalize()
-        .expect("invalid destination directory path");
+    let src_err = "invalid source directory path";
+    let dest_err = "invalid destination directory path";
+    let src = Path::new(&args[1]).canonicalize().expect(src_err);
+    let dest = Path::new(&args[2]).canonicalize().expect(dest_err);
+    if std::fs::metadata(&src).expect(src_err).is_file() {
+        panic!("{}", src_err);
+    }
+    if std::fs::metadata(&dest).expect(dest_err).is_file() {
+        panic!("{}", dest_err);
+    }
     sync_dirs(&src, &dest).ok();
 }
