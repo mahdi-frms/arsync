@@ -82,24 +82,28 @@ fn calc_diff(
     newfiles
 }
 
-fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), std::io::Error> {
-    let src_recs = traverse_dir(src)?;
-    let dest_recs = traverse_dir(dest)?;
+fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), u8> {
+    let src_recs = traverse_dir(src).map_err(|_| 1)?;
+    let dest_recs = traverse_dir(dest).map_err(|_| 2)?;
     let newfiles = calc_diff(src, dest, &src_recs, &dest_recs);
     for (s, d) in newfiles.iter() {
         (|| {
             std::fs::create_dir_all(Path::new(&d.path).parent()?).ok()?;
             std::fs::copy(&s.path, &d.path).ok()?;
-            println!(
-                "{} -> {}",
-                s.path.to_str().unwrap(),
-                d.path.to_str().unwrap()
-            );
+            println!("{} -> {}", s.path.to_str()?, d.path.to_str()?);
             Some(())
         })();
     }
     Ok(())
 }
+
+fn err(str: &str) -> ! {
+    println!("{}", str);
+    exit(1)
+}
+
+const ERR_SRC: &str = "invalid source directory";
+const ERR_DEST: &str = "invalid destination directory";
 
 fn main() {
     let args = args().collect::<Vec<String>>();
@@ -107,15 +111,29 @@ fn main() {
         print_help();
         exit(1);
     }
-    let src_err = "invalid source directory path";
-    let dest_err = "invalid destination directory path";
-    let src = Path::new(&args[1]).canonicalize().expect(src_err);
-    let dest = Path::new(&args[2]).canonicalize().expect(dest_err);
-    if std::fs::metadata(&src).expect(src_err).is_file() {
-        panic!("{}", src_err);
+    let src = Path::new(&args[1])
+        .canonicalize()
+        .unwrap_or_else(|_| err(ERR_SRC));
+    let dest = Path::new(&args[2])
+        .canonicalize()
+        .unwrap_or_else(|_| err(ERR_DEST));
+    if std::fs::metadata(&src)
+        .unwrap_or_else(|_| err(ERR_SRC))
+        .is_file()
+    {
+        err(ERR_SRC);
     }
-    if std::fs::metadata(&dest).expect(dest_err).is_file() {
-        panic!("{}", dest_err);
+    if std::fs::metadata(&dest)
+        .unwrap_or_else(|_| err(ERR_SRC))
+        .is_file()
+    {
+        err(ERR_DEST);
     }
-    sync_dirs(&src, &dest).ok();
+    if let Err(index) = sync_dirs(&src, &dest) {
+        if index == 1 {
+            err(ERR_SRC);
+        } else {
+            err(ERR_DEST);
+        }
+    }
 }
