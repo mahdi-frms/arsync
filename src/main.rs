@@ -1,8 +1,14 @@
-use std::{env::args, fs::read_dir, path::Path, process::exit, time::SystemTime};
+use std::{
+    env::args,
+    fs::read_dir,
+    path::{Path, PathBuf},
+    process::exit,
+    time::SystemTime,
+};
 
-#[derive(Debug, Eq, PartialOrd)]
+#[derive(Debug, Eq, PartialOrd, Clone)]
 struct Filerec {
-    path: String,
+    path: PathBuf,
     time: u128,
 }
 
@@ -22,11 +28,11 @@ fn print_help() {
     println!("Usage: arsync [src] [dest]");
 }
 
-fn traverse_dir(dir: &String) -> Result<Vec<Filerec>, std::io::Error> {
+fn traverse_dir(dir: &PathBuf) -> Result<Vec<Filerec>, std::io::Error> {
     let mut files = vec![];
     for entry in read_dir(dir)?.filter_map(|e| e.ok()) {
         (|| {
-            let path = entry.path().into_os_string().into_string().ok()?;
+            let path = entry.path();
             let kind = entry.file_type().ok()?;
             if kind.is_dir() {
                 files.append(&mut traverse_dir(&path).unwrap_or(vec![]));
@@ -42,42 +48,55 @@ fn traverse_dir(dir: &String) -> Result<Vec<Filerec>, std::io::Error> {
             Some(())
         })();
     }
+    files.sort();
     Ok(files)
 }
 
-fn calc_path(file: &String, src: &String, dest: &String) -> Option<String> {
-    let src_path = Path::new(src);
-    let dest_path = Path::new(dest);
-    let file_path = Path::new(file);
-    let rlt_path = file_path.strip_prefix(src_path).ok()?;
-    Some(dest_path.join(rlt_path).as_path().to_str()?.to_string())
+fn calc_path(file: &PathBuf, src: &PathBuf, dest: &PathBuf) -> Option<PathBuf> {
+    let rlt_path = file.strip_prefix(src).ok()?;
+    Some(dest.join(rlt_path))
 }
 
-fn sync_dirs(src: &String, dest: &String) -> Result<(), std::io::Error> {
-    let mut src_recs = traverse_dir(src)?;
-    let mut dest_recs = traverse_dir(dest)?;
-    src_recs.sort();
-    dest_recs.sort();
+fn calc_diff(
+    src: &PathBuf,
+    dest: &PathBuf,
+    src_recs: &Vec<Filerec>,
+    dest_recs: &Vec<Filerec>,
+) -> Vec<(Filerec, Filerec)> {
     let mut newfiles = vec![];
-    for f in src_recs.drain(..) {
+    for f in src_recs.iter() {
         if let Some(path) = calc_path(&f.path, src, dest) {
             let dest_file = Filerec { path, time: 0 };
             match dest_recs.binary_search(&dest_file) {
                 Ok(index) => {
                     if f.time > dest_recs[index].time {
-                        newfiles.push((f, dest_file));
+                        newfiles.push((f.clone(), dest_file));
                     }
                 }
                 Err(_) => {
-                    newfiles.push((f, dest_file));
+                    newfiles.push((f.clone(), dest_file));
                 }
             }
         }
     }
-    for (s, d) in newfiles.drain(..) {
-        println!("{} -> {}", s.path, d.path);
-        std::fs::create_dir_all(Path::new(&d.path).parent().unwrap()).unwrap();
-        std::fs::copy(&s.path, &d.path).ok();
+    newfiles
+}
+
+fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), std::io::Error> {
+    let src_recs = traverse_dir(src)?;
+    let dest_recs = traverse_dir(dest)?;
+    let newfiles = calc_diff(src, dest, &src_recs, &dest_recs);
+    for (s, d) in newfiles.iter() {
+        (|| {
+            std::fs::create_dir_all(Path::new(&d.path).parent()?).ok()?;
+            std::fs::copy(&s.path, &d.path).ok()?;
+            println!(
+                "{} -> {}",
+                s.path.to_str().unwrap(),
+                d.path.to_str().unwrap()
+            );
+            Some(())
+        })();
     }
     Ok(())
 }
@@ -90,15 +109,9 @@ fn main() {
     }
     let src = Path::new(&args[1])
         .canonicalize()
-        .expect("invalid source directory path")
-        .to_str()
-        .unwrap()
-        .to_string();
+        .expect("invalid source directory path");
     let dest = Path::new(&args[2])
         .canonicalize()
-        .expect("invalid destination directory path")
-        .to_str()
-        .unwrap()
-        .to_string();
+        .expect("invalid destination directory path");
     sync_dirs(&src, &dest).ok();
 }
