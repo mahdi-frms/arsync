@@ -1,13 +1,26 @@
+use clap::Parser;
 use threadpool::ThreadPool;
 
 use std::{
-    env::args,
     fs::read_dir,
     path::{Path, PathBuf},
     process::exit,
     sync::{atomic::AtomicUsize, Arc, Barrier},
     time::SystemTime,
 };
+
+#[derive(Parser, Debug)]
+#[clap(version = "0.1.0", about = "file synchronization utility")]
+struct Args {
+    #[clap(help = "source directory")]
+    src: Option<PathBuf>,
+
+    #[clap(help = "destination directory")]
+    dest: Option<PathBuf>,
+
+    #[clap(short, long)]
+    verbose: bool,
+}
 
 #[derive(Debug, Eq, PartialOrd, Clone)]
 struct Filerec {
@@ -25,10 +38,6 @@ impl PartialEq for Filerec {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
     }
-}
-
-fn print_help() {
-    println!("Usage: arsync [src] [dest]");
 }
 
 fn traverse_dir(dir: &PathBuf) -> Result<Vec<Filerec>, std::io::Error> {
@@ -88,11 +97,10 @@ fn calc_diff(
 fn copy_file(d: &Filerec, s: &Filerec) -> Option<()> {
     std::fs::create_dir_all(Path::new(&d.path).parent()?).ok()?;
     std::fs::copy(&s.path, &d.path).ok()?;
-    println!("{} -> {}", s.path.to_str()?, d.path.to_str()?);
     Some(())
 }
 
-fn apply_diff(mut diff: Vec<(Filerec, Filerec)>) {
+fn apply_diff(mut diff: Vec<(Filerec, Filerec)>, verbose: bool) {
     if diff.len() == 0 {
         return;
     }
@@ -105,20 +113,25 @@ fn apply_diff(mut diff: Vec<(Filerec, Filerec)>) {
         let barrier = barrier.clone();
         let counter = counter.clone();
         pool.execute(move || {
-            copy_file(&d, &s);
-            if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
-                barrier.wait();
-            }
+            (|| {
+                if copy_file(&d, &s).is_some() && verbose {
+                    println!("{} -> {}", s.path.to_str()?, d.path.to_str()?);
+                }
+                if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                    barrier.wait();
+                }
+                Some(())
+            })();
         })
     }
     barrier.wait();
 }
 
-fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), u8> {
+fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool) -> Result<(), u8> {
     let src_recs = traverse_dir(src).map_err(|_| 1)?;
     let dest_recs = traverse_dir(dest).map_err(|_| 2)?;
     let diff = calc_diff(src, dest, &src_recs, &dest_recs);
-    apply_diff(diff);
+    apply_diff(diff, verbose);
     Ok(())
 }
 
@@ -127,21 +140,18 @@ fn err(str: &str) -> ! {
     exit(1)
 }
 
-const ERR_SRC: &str = "invalid source directory";
-const ERR_DEST: &str = "invalid destination directory";
+const ERR_SRC: &str = "Error: invalid source directory";
+const ERR_DEST: &str = "Error: invalid destination directory";
 
 fn main() {
-    let args = args().collect::<Vec<String>>();
-    if args.len() < 3 {
-        print_help();
-        exit(1);
-    }
-    let src = Path::new(&args[1])
-        .canonicalize()
-        .unwrap_or_else(|_| err(ERR_SRC));
-    let dest = Path::new(&args[2])
-        .canonicalize()
-        .unwrap_or_else(|_| err(ERR_DEST));
+    let args = Args::parse();
+    let src = args
+        .src
+        .unwrap_or_else(|| err("Error: source directory not provided"));
+    let dest = args
+        .dest
+        .unwrap_or_else(|| err("Error: destination directory not provided"));
+
     if std::fs::metadata(&src)
         .unwrap_or_else(|_| err(ERR_SRC))
         .is_file()
@@ -149,12 +159,12 @@ fn main() {
         err(ERR_SRC);
     }
     if std::fs::metadata(&dest)
-        .unwrap_or_else(|_| err(ERR_SRC))
+        .unwrap_or_else(|_| err(ERR_DEST))
         .is_file()
     {
         err(ERR_DEST);
     }
-    if let Err(index) = sync_dirs(&src, &dest) {
+    if let Err(index) = sync_dirs(&src, &dest, args.verbose) {
         if index == 1 {
             err(ERR_SRC);
         } else {
