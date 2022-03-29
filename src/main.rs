@@ -85,34 +85,40 @@ fn calc_diff(
     newfiles
 }
 
-fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), u8> {
-    let src_recs = traverse_dir(src).map_err(|_| 1)?;
-    let dest_recs = traverse_dir(dest).map_err(|_| 2)?;
-    let mut newfiles = calc_diff(src, dest, &src_recs, &dest_recs);
-    if newfiles.len() == 0 {
-        return Ok(());
+fn copy_file(d: &Filerec, s: &Filerec) -> Option<()> {
+    std::fs::create_dir_all(Path::new(&d.path).parent()?).ok()?;
+    std::fs::copy(&s.path, &d.path).ok()?;
+    println!("{} -> {}", s.path.to_str()?, d.path.to_str()?);
+    Some(())
+}
+
+fn apply_diff(mut diff: Vec<(Filerec, Filerec)>) {
+    if diff.len() == 0 {
+        return;
     }
+
     let pool = ThreadPool::default();
-    let counter = Arc::new(AtomicUsize::new(newfiles.len()));
+    let counter = Arc::new(AtomicUsize::new(diff.len()));
     let barrier = Arc::new(Barrier::new(2));
 
-    for (s, d) in newfiles.drain(..) {
+    for (s, d) in diff.drain(..) {
         let barrier = barrier.clone();
         let counter = counter.clone();
         pool.execute(move || {
-            (|| {
-                std::fs::create_dir_all(Path::new(&d.path).parent()?).ok()?;
-                std::fs::copy(&s.path, &d.path).ok()?;
-                println!("{} -> {}", s.path.to_str()?, d.path.to_str()?);
-                let prev = counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                if prev == 1 {
-                    barrier.wait();
-                }
-                Some(())
-            })();
+            copy_file(&d, &s);
+            if counter.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                barrier.wait();
+            }
         })
     }
     barrier.wait();
+}
+
+fn sync_dirs(src: &PathBuf, dest: &PathBuf) -> Result<(), u8> {
+    let src_recs = traverse_dir(src).map_err(|_| 1)?;
+    let dest_recs = traverse_dir(dest).map_err(|_| 2)?;
+    let diff = calc_diff(src, dest, &src_recs, &dest_recs);
+    apply_diff(diff);
     Ok(())
 }
 
