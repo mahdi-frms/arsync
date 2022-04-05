@@ -8,6 +8,7 @@ pub struct FnodeFile {
 #[derive(Clone)]
 pub struct FnodeDir {
     children: Vec<(String, Arc<Fnode>)>,
+    entirity: bool,
 }
 
 #[derive(Clone)]
@@ -18,7 +19,10 @@ pub enum Fnode {
 
 impl FnodeDir {
     pub fn new() -> FnodeDir {
-        FnodeDir { children: vec![] }
+        FnodeDir {
+            children: vec![],
+            entirity: false,
+        }
     }
     pub fn append_dir(&mut self, name: String, fnode: FnodeDir) {
         self.children.push((name, Arc::new(Fnode::Dir(fnode))));
@@ -63,6 +67,14 @@ impl FnodeDir {
 
     pub fn children(&self) -> &[(String, Arc<Fnode>)] {
         self.children.as_ref()
+    }
+
+    pub fn set_entirity(&mut self, entirity: bool) {
+        self.entirity = entirity;
+    }
+
+    pub fn entirity(&self) -> bool {
+        self.entirity
     }
 }
 
