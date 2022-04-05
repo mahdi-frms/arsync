@@ -133,6 +133,7 @@ fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
     let tp = TaskPool::new();
     let src = src.clone();
     let dest = dest.clone();
+    tp.counter_add(1);
     let tp_clone = tp.clone();
     tp.thpool
         .execute(move || apply_diff_node(tp_clone, Arc::new(Fnode::Dir(diff)), src, dest, verbose));
