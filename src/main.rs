@@ -2,8 +2,15 @@ mod ftree;
 
 use clap::Parser;
 use ftree::{Fnode, FnodeDir, FnodeFile};
+use threadpool::ThreadPool;
 
-use std::{fs::read_dir, path::PathBuf, process::exit, time::SystemTime};
+use std::{
+    fs::read_dir,
+    path::PathBuf,
+    process::exit,
+    sync::{atomic::AtomicIsize, Arc, Barrier},
+    time::SystemTime,
+};
 
 #[derive(Parser, Debug)]
 #[clap(version = "0.1.0", about = "file synchronization utility")]
@@ -19,22 +26,21 @@ struct Args {
 }
 
 fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
-    let mut tree = ftree::FnodeDir::new(&dir.file_name()?.to_str()?.to_string());
+    let mut tree = ftree::FnodeDir::new();
     for entry in read_dir(dir).ok()?.filter_map(|e| e.ok()) {
         (|| {
             let path = entry.path();
             let kind = entry.file_type().ok()?;
             if kind.is_dir() {
                 if let Some(dir) = traverse_dir(&path) {
-                    tree.append_dir(dir);
+                    tree.append_dir(entry.file_name().to_str()?.to_string(), dir);
                 }
             } else if kind.is_file() {
                 let md = entry.metadata().ok()?;
                 let time = md.modified().ok()?;
                 let dur = time.duration_since(SystemTime::UNIX_EPOCH).ok()?;
-                let file =
-                    FnodeFile::new(&entry.file_name().to_str()?.to_string(), dur.as_millis());
-                tree.append_file(file);
+                let file = FnodeFile::new(dur.as_millis());
+                tree.append_file(entry.file_name().to_str()?.to_string(), file);
             }
             Some(())
         })();
@@ -43,63 +49,111 @@ fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
 }
 
 fn calc_diff(src: &FnodeDir, dest: &FnodeDir) -> FnodeDir {
-    let mut diff = FnodeDir::new(&dest.name());
-    for f in src.children().iter() {
+    let mut diff = FnodeDir::new();
+    for (n, f) in src.children().iter() {
         match f.as_ref() {
-            Fnode::Dir(dir) => match dest.subdir(dir.name()) {
+            Fnode::Dir(dir) => match dest.subdir(n) {
                 Some(sub) => {
-                    diff.append_dir(calc_diff(&dir, sub));
+                    diff.append_dir(n.clone(), calc_diff(&dir, sub));
                 }
-                None => diff.append_dir(dir.clone()),
+                None => diff.append_dir(n.clone(), dir.clone()),
             },
-            Fnode::File(file) => match dest.file(file.name()) {
+            Fnode::File(file) => match dest.file(n) {
                 Some(f) => {
                     if f.date() < file.date() {
-                        diff.append_file(file.clone());
+                        diff.append_file(n.clone(), file.clone());
                     }
                 }
-                None => {
-                    diff.append_file(file.clone());
-                }
+                None => diff.append_file(n.clone(), file.clone()),
             },
         }
     }
     diff
 }
 
-fn apply_diff(diff: &FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
-    for c in diff.children() {
-        match c.as_ref() {
-            Fnode::File(f) => {
-                let mut dpath = dest.clone();
-                let mut spath = src.clone();
-                spath.push(f.name());
-                dpath.push(f.name());
-                if std::fs::copy(&spath, &dpath).is_ok() && verbose {
+fn apply_diff_node(
+    pool: ThreadPool,
+    barrier: Arc<Barrier>,
+    task_count: Arc<AtomicIsize>,
+    node: Arc<Fnode>,
+    src: PathBuf,
+    dest: PathBuf,
+    verbose: bool,
+) {
+    let mut task_count_change = 0;
+    match node.as_ref() {
+        Fnode::File(_) => {
+            let rsl = std::fs::copy(&src, &dest);
+            if verbose {
+                if rsl.is_ok() {
                     (|| {
-                        println!("copied file {} to {}", spath.to_str()?, dpath.to_str()?);
+                        println!("copied file {} to {}", src.to_str()?, dest.to_str()?);
                         Some(())
                     })();
+                } else {
+                    println!(
+                        "copied file {} to {}",
+                        src.to_str().unwrap(),
+                        dest.to_str().unwrap()
+                    );
+                    println!("FAIL {}", rsl.unwrap_err());
+                    exit(1);
                 }
             }
-            Fnode::Dir(d) => {
-                let mut dpath = dest.clone();
-                let mut spath = src.clone();
-                spath.push(d.name());
-                dpath.push(d.name());
-                if std::fs::create_dir_all(&dpath).is_ok() {
-                    apply_diff(d, &spath, &dpath, verbose)
+        }
+        Fnode::Dir(d) => {
+            if std::fs::create_dir_all(&dest).is_ok() {
+                for (n, c) in d.children() {
+                    let pool_handle = pool.clone();
+                    let barrier = barrier.clone();
+                    let task_count = task_count.clone();
+                    let node = c.clone();
+                    let mut src = src.clone();
+                    let mut dest = dest.clone();
+                    src.push(n);
+                    dest.push(n);
+                    task_count_change += 1;
+                    pool.execute(move || {
+                        apply_diff_node(pool_handle, barrier, task_count, node, src, dest, verbose)
+                    });
                 }
             }
         }
     }
+    task_count_change -= 1;
+    let prev = task_count.fetch_add(task_count_change, std::sync::atomic::Ordering::SeqCst);
+    if prev + task_count_change == 0 {
+        barrier.wait();
+    }
+}
+
+fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
+    let pool = ThreadPool::default();
+    let barrier = Arc::new(Barrier::new(2));
+    let pool_clone = pool.clone();
+    let task_count = Arc::new(AtomicIsize::new(0));
+    let src = src.clone();
+    let dest = dest.clone();
+    let bar = barrier.clone();
+    pool.execute(move || {
+        apply_diff_node(
+            pool_clone,
+            bar,
+            task_count,
+            Arc::new(Fnode::Dir(diff)),
+            src,
+            dest,
+            verbose,
+        )
+    });
+    barrier.wait();
 }
 
 fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool) -> Result<(), u8> {
     let src_tree = traverse_dir(src).ok_or(1)?;
     let dest_tree = traverse_dir(dest).ok_or(2)?;
     let diff_tree = calc_diff(&src_tree, &dest_tree);
-    apply_diff(&diff_tree, src, dest, verbose);
+    apply_diff(diff_tree, src, dest, verbose);
     Ok(())
 }
 
