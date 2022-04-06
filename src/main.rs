@@ -90,13 +90,19 @@ fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeD
                     diff_rem.append_dir(n.clone(), sub_rem);
                 }
                 None => {
+                    let mut add_flag = false;
                     if let Some(f) = dest.file(n) {
                         if to_rem {
                             diff_rem.append_file(n.clone(), f.clone());
-                            diff_add.append_dir(n.clone(), dir.clone());
+                            add_flag = true;
                         }
                     } else {
-                        diff_add.append_dir(n.clone(), dir.clone());
+                        add_flag = true;
+                    }
+                    if add_flag {
+                        let mut dir = dir.clone();
+                        dir.set_entirity_recursively(true);
+                        diff_add.append_dir(n.clone(), dir)
                     }
                 }
             },
@@ -182,7 +188,7 @@ fn apply_diff_node(tp: TaskPool, node: Arc<Fnode>, src: PathBuf, dest: PathBuf, 
             }
         }
         Fnode::Dir(d) => {
-            if std::fs::create_dir_all(&dest).is_ok() {
+            if !d.entirity() || std::fs::create_dir(&dest).is_ok() {
                 for (n, c) in d.children() {
                     let tp_clone = tp.clone();
                     let node = c.clone();

@@ -73,6 +73,27 @@ impl FnodeDir {
         self.entirity = entirity;
     }
 
+    pub fn set_entirity_recursively(&mut self, entirity: bool) {
+        self.set_entirity(entirity);
+        self.children = self
+            .children
+            .drain(..)
+            .map(|(n, c)| {
+                (
+                    n,
+                    match c.as_ref() {
+                        Fnode::Dir(d) => {
+                            let mut d = d.clone();
+                            d.set_entirity_recursively(entirity);
+                            Arc::new(Fnode::Dir(d))
+                        }
+                        Fnode::File(_) => c,
+                    },
+                )
+            })
+            .collect();
+    }
+
     pub fn entirity(&self) -> bool {
         self.entirity
     }
