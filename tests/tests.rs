@@ -29,10 +29,7 @@ impl TestDir {
     fn file_c(&self, path: &str, content: &str) -> bool {
         let path = self.path.join(PathBuf::from(path));
         match std::fs::read_to_string(path) {
-            Ok(s) => {
-                println!("++++> {}", s);
-                s == content
-            }
+            Ok(s) => s == content,
             Err(_) => false,
         }
     }
@@ -58,7 +55,6 @@ impl TestDir {
                 break path;
             }
         };
-        println!("path created {}", tmp.join(&path).to_str().unwrap());
         TestDir {
             path: tmp.join(path),
         }
@@ -71,12 +67,12 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        // std::fs::remove_dir_all(&self.path).unwrap();
+        std::fs::remove_dir_all(&self.path).unwrap();
     }
 }
 
 fn test_sync_dir(src: PathBuf, dest: PathBuf, hard: bool) {
-    sync_dirs(&src, &dest, false, hard).unwrap();
+    sync_dirs(&src, &dest, true, hard).unwrap();
 }
 
 #[test]

@@ -110,7 +110,6 @@ fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeD
 }
 
 fn remove_diff_node(tp: TaskPool, node: Arc<Fnode>, dest: PathBuf, verbose: bool) {
-    let mut task_counter_change = 0;
     match node.as_ref() {
         Fnode::File(_) => {
             if std::fs::remove_file(&dest).is_ok() && verbose {
@@ -131,7 +130,7 @@ fn remove_diff_node(tp: TaskPool, node: Arc<Fnode>, dest: PathBuf, verbose: bool
                     let tp_clone = tp.clone();
                     let node = node.clone();
                     let mut dest = dest.clone();
-                    task_counter_change += 1;
+                    tp.counter_add(1);
                     dest.push(name);
                     tp.thpool
                         .execute(move || remove_diff_node(tp_clone, node.clone(), dest, verbose));
@@ -139,8 +138,7 @@ fn remove_diff_node(tp: TaskPool, node: Arc<Fnode>, dest: PathBuf, verbose: bool
             }
         }
     }
-    task_counter_change -= 1;
-    if tp.counter_add(task_counter_change) == 0 {
+    if tp.counter_add(-1) == 0 {
         tp.wait();
     }
 }
@@ -156,7 +154,6 @@ fn remove_diff(diff: FnodeDir, dest: &PathBuf, verbose: bool) {
 }
 
 fn apply_diff_node(tp: TaskPool, node: Arc<Fnode>, src: PathBuf, dest: PathBuf, verbose: bool) {
-    let mut task_count_change = 0;
     match node.as_ref() {
         Fnode::File(_) => {
             if std::fs::copy(&src, &dest).is_ok() && verbose {
@@ -175,15 +172,14 @@ fn apply_diff_node(tp: TaskPool, node: Arc<Fnode>, src: PathBuf, dest: PathBuf, 
                     let mut dest = dest.clone();
                     src.push(n);
                     dest.push(n);
-                    task_count_change += 1;
+                    tp.counter_add(1);
                     tp.thpool
                         .execute(move || apply_diff_node(tp_clone, node, src, dest, verbose));
                 }
             }
         }
     }
-    task_count_change -= 1;
-    if tp.counter_add(task_count_change) == 0 {
+    if tp.counter_add(-1) == 0 {
         tp.wait();
     }
 }
