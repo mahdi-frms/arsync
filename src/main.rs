@@ -12,6 +12,9 @@ struct Args {
     dest: Option<PathBuf>,
 
     #[clap(short, long)]
+    update: bool,
+
+    #[clap(short, long)]
     soft: bool,
 
     #[clap(short, long)]
@@ -58,14 +61,17 @@ fn main() {
         err(ERR_DEST);
     }
 
-    if args.hard && args.soft || args.hard && args.mixed || args.soft && args.mixed {
-        err("can't use both hard and soft flags");
+    let flags = [args.update, args.soft, args.mixed, args.hard];
+    if flags.iter().filter(|f| **f).count() > 1 {
+        err("can only use one of 'update' , 'soft' , 'mixed' and 'hard' flags");
     }
 
     let mode = if args.hard {
         SyncMode::Hard
     } else if args.soft {
         SyncMode::Soft
+    } else if args.update {
+        SyncMode::Update
     } else {
         SyncMode::Mixed
     };
