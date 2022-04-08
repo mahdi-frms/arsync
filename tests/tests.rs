@@ -130,3 +130,42 @@ fn sync_recursively() {
 
     assert!(test_dir.file("dest/d/a"));
 }
+
+#[test]
+fn sync_recursively_deep() {
+    let test_dir = TestDir::acquire();
+    // dest
+    test_dir.pushd("dest/d/r");
+    // src
+    test_dir.pushf("src/d/r/a", "");
+
+    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+
+    assert!(test_dir.file("dest/d/r/a"));
+}
+
+#[test]
+fn sync_soft() {
+    let test_dir = TestDir::acquire();
+    // dest
+    test_dir.pushd("dest/a");
+    // src
+    test_dir.pushf("src/a", "");
+
+    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+
+    assert!(test_dir.dir("dest/a"));
+}
+
+#[test]
+fn sync_hard() {
+    let test_dir = TestDir::acquire();
+    // dest
+    test_dir.pushd("dest/a");
+    // src
+    test_dir.pushf("src/a", "");
+
+    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), true);
+
+    assert!(test_dir.file("dest/a"));
+}
