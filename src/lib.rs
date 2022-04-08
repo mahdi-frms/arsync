@@ -35,7 +35,7 @@ impl TaskPool {
 }
 
 fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
-    let mut tree = ftree::FnodeDir::new();
+    let mut tree = ftree::FnodeDir::default();
     for entry in read_dir(dir).ok()?.filter_map(|e| e.ok()) {
         (|| {
             let path = entry.path();
@@ -58,8 +58,8 @@ fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
 }
 
 fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeDir) {
-    let mut diff_add = FnodeDir::new();
-    let mut diff_rem = FnodeDir::new();
+    let mut diff_add = FnodeDir::default();
+    let mut diff_rem = FnodeDir::default();
     for (n, f) in src.children().iter() {
         match f.as_ref() {
             Fnode::Dir(dir) => match dest.subdir(n) {
