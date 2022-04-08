@@ -14,6 +14,7 @@ pub enum SyncMode {
     Mixed,
     Soft,
     Hard,
+    Update,
 }
 
 #[derive(Clone)]
@@ -108,6 +109,29 @@ fn calc_diff_hard(src: &FnodeDir, dest: &FnodeDir) -> (FnodeDir, FnodeDir) {
         }
     }
     (diff_add, diff_rem)
+}
+
+fn calc_diff_update(src: &FnodeDir, dest: &FnodeDir) -> FnodeDir {
+    let mut diff_add = FnodeDir::default();
+
+    for (n, f) in dest.children().iter() {
+        match f.as_ref() {
+            Fnode::Dir(dest_sub) => {
+                if let Some(src_sub) = src.subdir(n) {
+                    let sub_add = calc_diff_update(src_sub, dest_sub);
+                    diff_add.append_dir(n.clone(), sub_add);
+                }
+            }
+            Fnode::File(dest_file) => {
+                if let Some(src_file) = src.file(n) {
+                    if dest_file.size() != src_file.size() || dest_file.date() < src_file.date() {
+                        diff_add.append_file(n.clone(), src_file.clone());
+                    }
+                }
+            }
+        }
+    }
+    diff_add
 }
 
 fn calc_diff_soft(src: &FnodeDir, dest: &FnodeDir, mixed: bool) -> (FnodeDir, FnodeDir) {
@@ -255,6 +279,7 @@ pub fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool, mode: SyncMode) -
         SyncMode::Soft => calc_diff_soft(&src_tree, &dest_tree, false),
         SyncMode::Mixed => calc_diff_soft(&src_tree, &dest_tree, true),
         SyncMode::Hard => calc_diff_hard(&src_tree, &dest_tree),
+        SyncMode::Update => (calc_diff_update(&src_tree, &dest_tree), FnodeDir::default()),
     };
     remove_diff(rem_diff, dest, verbose);
     apply_diff(add_diff, src, dest, verbose);

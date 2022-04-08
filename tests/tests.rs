@@ -232,3 +232,28 @@ fn sync_hard() {
     assert!(test_dir.count("dest/b") == 2);
     assert!(test_dir.count("dest/d") == 1);
 }
+
+#[test]
+fn sync_update() {
+    let test_dir = TestDir::acquire();
+    // src
+    test_dir.pushf("src/a", "ac+");
+    test_dir.pushf("src/c", "cc+");
+    test_dir.pushf("src/b/b1", "b1c+");
+    test_dir.pushf("src/b/b2", "b2c+");
+    test_dir.pushf("src/d/d1", "d1c+");
+    // dest
+    test_dir.pushf("dest/a", "ac");
+    test_dir.pushf("dest/b/b1", "b1c");
+
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Update,
+    );
+
+    assert!(test_dir.file_c("dest/a", "ac+"));
+    assert!(test_dir.file_c("dest/b/b1", "b1c+"));
+    assert!(test_dir.count("dest/") == 2);
+    assert!(test_dir.count("dest/b") == 1);
+}
