@@ -48,7 +48,7 @@ fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
                 let md = entry.metadata().ok()?;
                 let time = md.modified().ok()?;
                 let dur = time.duration_since(SystemTime::UNIX_EPOCH).ok()?;
-                let file = FnodeFile::new(dur.as_millis());
+                let file = FnodeFile::new(dur.as_nanos(), md.len());
                 tree.append_file(entry.file_name().to_str()?.to_string(), file);
             }
             Some(())
@@ -87,7 +87,7 @@ fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeD
             },
             Fnode::File(file) => match dest.file(n) {
                 Some(f) => {
-                    if f.date() < file.date() {
+                    if f.size() != file.size() || f.date() < file.date() {
                         diff_add.append_file(n.clone(), file.clone());
                     }
                 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct FnodeFile {
     date: u128,
+    size: u64,
 }
 
 #[derive(Clone)]
@@ -100,11 +101,16 @@ impl FnodeDir {
 }
 
 impl FnodeFile {
-    pub fn new(date: u128) -> FnodeFile {
-        FnodeFile { date }
+    pub fn new(date: u128, size: u64) -> FnodeFile {
+        FnodeFile { date, size }
     }
 
     pub fn date(&self) -> u128 {
         self.date
+    }
+
+    /// Get the fnode file's size.
+    pub fn size(&self) -> u64 {
+        self.size
     }
 }
