@@ -1,4 +1,4 @@
-use arsync::sync_dirs;
+use arsync::{sync_dirs, SyncMode};
 use clap::Parser;
 use std::{path::PathBuf, process::exit};
 
@@ -16,6 +16,9 @@ struct Args {
 
     #[clap(short, long)]
     hard: bool,
+
+    #[clap(short, long)]
+    mixed: bool,
 
     #[clap(short, long)]
     verbose: bool,
@@ -55,11 +58,19 @@ fn main() {
         err(ERR_DEST);
     }
 
-    if args.hard && args.soft {
+    if args.hard && args.soft || args.hard && args.mixed || args.soft && args.mixed {
         err("can't use both hard and soft flags");
     }
 
-    if let Err(index) = sync_dirs(&src, &dest, args.verbose, args.hard) {
+    let mode = if args.hard {
+        SyncMode::Hard
+    } else if args.soft {
+        SyncMode::Soft
+    } else {
+        SyncMode::Mixed
+    };
+
+    if let Err(index) = sync_dirs(&src, &dest, args.verbose, mode) {
         if index == 1 {
             err(ERR_SRC);
         } else {

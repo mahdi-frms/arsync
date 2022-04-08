@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use arsync::sync_dirs;
+use arsync::{sync_dirs, SyncMode};
 
 struct TestDir {
     path: PathBuf,
@@ -44,6 +44,11 @@ impl TestDir {
         std::fs::read_dir(path).is_ok()
     }
 
+    fn count(&self, path: &str) -> usize {
+        let path = self.path.join(PathBuf::from(path));
+        std::fs::read_dir(path).unwrap().count()
+    }
+
     fn acquire() -> TestDir {
         let mut tmp = std::env::temp_dir();
         tmp = tmp.join("arsynctest");
@@ -71,8 +76,8 @@ impl Drop for TestDir {
     }
 }
 
-fn test_sync_dir(src: PathBuf, dest: PathBuf, hard: bool) {
-    sync_dirs(&src, &dest, true, hard).unwrap();
+fn test_sync_dir(src: PathBuf, dest: PathBuf, mode: SyncMode) {
+    sync_dirs(&src, &dest, true, mode).unwrap();
 }
 
 #[test]
@@ -83,7 +88,11 @@ fn sync_file() {
     // src
     test_dir.pushf("src/a", "");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.file("dest/a"));
 }
@@ -98,7 +107,11 @@ fn sync_multiple_files() {
     test_dir.pushf("src/b", "bc");
     test_dir.pushf("src/c", "cc");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.file_c("dest/a", "ac"));
     assert!(test_dir.file_c("dest/b", "bc"));
@@ -113,7 +126,11 @@ fn sync_dir() {
     // src
     test_dir.pushd("src/b");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.dir("dest/b"));
 }
@@ -126,7 +143,11 @@ fn sync_recursively() {
     // src
     test_dir.pushf("src/d/a", "");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.file("dest/d/a"));
 }
@@ -139,7 +160,11 @@ fn sync_recursively_deep() {
     // src
     test_dir.pushf("src/d/r/a", "");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.file("dest/d/r/a"));
 }
@@ -152,20 +177,58 @@ fn sync_soft() {
     // src
     test_dir.pushf("src/a", "");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), false);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Soft,
+    );
 
     assert!(test_dir.dir("dest/a"));
 }
 
 #[test]
-fn sync_hard() {
+fn sync_mixed() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/a");
     // src
     test_dir.pushf("src/a", "");
 
-    test_sync_dir(test_dir.relative("src"), test_dir.relative("dest"), true);
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Mixed,
+    );
 
     assert!(test_dir.file("dest/a"));
+}
+
+#[test]
+fn sync_hard() {
+    let test_dir = TestDir::acquire();
+    // src
+    test_dir.pushf("src/a", "ac+");
+    test_dir.pushf("src/b/b1", "b1c");
+    test_dir.pushf("src/b/b2", "b2c");
+    test_dir.pushf("src/d/d1", "d1c+");
+    // dest
+    test_dir.pushf("dest/a", "ac");
+    test_dir.pushf("dest/b", "bc");
+    test_dir.pushf("dest/c/c1", "c1c");
+    test_dir.pushf("dest/c/c2", "c2c");
+    test_dir.pushf("dest/d/d1", "d1c");
+
+    test_sync_dir(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Hard,
+    );
+
+    assert!(test_dir.file_c("dest/a", "ac+"));
+    assert!(test_dir.file_c("dest/b/b1", "b1c"));
+    assert!(test_dir.file_c("dest/b/b2", "b2c"));
+    assert!(test_dir.file_c("dest/d/d1", "d1c+"));
+    assert!(test_dir.count("dest/") == 3);
+    assert!(test_dir.count("dest/b") == 2);
+    assert!(test_dir.count("dest/d") == 1);
 }

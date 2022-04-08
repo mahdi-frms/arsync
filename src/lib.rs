@@ -10,6 +10,12 @@ use std::{
     time::SystemTime,
 };
 
+pub enum SyncMode {
+    Mixed,
+    Soft,
+    Hard,
+}
+
 #[derive(Clone)]
 struct TaskPool {
     thpool: ThreadPool,
@@ -57,21 +63,68 @@ fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
     Some(tree)
 }
 
-fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeDir) {
+fn calc_diff_hard(src: &FnodeDir, dest: &FnodeDir) -> (FnodeDir, FnodeDir) {
+    let mut diff_add = FnodeDir::default();
+    let mut diff_rem = FnodeDir::default();
+
+    for (n, f) in dest.children().iter() {
+        match f.as_ref() {
+            Fnode::Dir(dest_sub) => match src.subdir(n) {
+                Some(src_sub) => {
+                    let (sub_add, sub_rem) = calc_diff_hard(src_sub, dest_sub);
+                    diff_add.append_dir(n.clone(), sub_add);
+                    diff_rem.append_dir(n.clone(), sub_rem);
+                }
+                None => {
+                    let mut dest_sub = dest_sub.clone();
+                    dest_sub.set_entirity_recursively(true);
+                    diff_rem.append_dir(n.clone(), dest_sub);
+                }
+            },
+            Fnode::File(dest_file) => match src.file(n) {
+                Some(src_file) => {
+                    if dest_file.size() != src_file.size() || dest_file.date() < src_file.date() {
+                        diff_add.append_file(n.clone(), src_file.clone());
+                    }
+                }
+                None => diff_rem.append_file(n.clone(), dest_file.clone()),
+            },
+        }
+    }
+    for (n, f) in src.children().iter() {
+        match f.as_ref() {
+            Fnode::Dir(src_sub) => {
+                if dest.subdir(n).is_none() {
+                    let mut src_sub = src_sub.clone();
+                    src_sub.set_entirity_recursively(true);
+                    diff_add.append_dir(n.clone(), src_sub);
+                }
+            }
+            Fnode::File(src_file) => {
+                if dest.file(n).is_none() {
+                    diff_add.append_file(n.clone(), src_file.clone())
+                }
+            }
+        }
+    }
+    (diff_add, diff_rem)
+}
+
+fn calc_diff_soft(src: &FnodeDir, dest: &FnodeDir, mixed: bool) -> (FnodeDir, FnodeDir) {
     let mut diff_add = FnodeDir::default();
     let mut diff_rem = FnodeDir::default();
     for (n, f) in src.children().iter() {
         match f.as_ref() {
             Fnode::Dir(dir) => match dest.subdir(n) {
                 Some(sub) => {
-                    let (sub_add, sub_rem) = calc_diff(&dir, sub, to_rem);
+                    let (sub_add, sub_rem) = calc_diff_soft(&dir, sub, mixed);
                     diff_add.append_dir(n.clone(), sub_add);
                     diff_rem.append_dir(n.clone(), sub_rem);
                 }
                 None => {
                     let mut add_flag = false;
                     if let Some(f) = dest.file(n) {
-                        if to_rem {
+                        if mixed {
                             diff_rem.append_file(n.clone(), f.clone());
                             add_flag = true;
                         }
@@ -93,7 +146,7 @@ fn calc_diff(src: &FnodeDir, dest: &FnodeDir, to_rem: bool) -> (FnodeDir, FnodeD
                 }
                 None => {
                     if let Some(d) = dest.subdir(n) {
-                        if to_rem {
+                        if mixed {
                             let mut d = d.clone();
                             d.set_entirity(true);
                             diff_rem.append_dir(n.clone(), d);
@@ -195,10 +248,14 @@ fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
     tp.wait();
 }
 
-pub fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool, hard: bool) -> Result<(), u8> {
+pub fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool, mode: SyncMode) -> Result<(), u8> {
     let src_tree = traverse_dir(src).ok_or(1)?;
     let dest_tree = traverse_dir(dest).ok_or(2)?;
-    let (add_diff, rem_diff) = calc_diff(&src_tree, &dest_tree, hard);
+    let (add_diff, rem_diff) = match mode {
+        SyncMode::Soft => calc_diff_soft(&src_tree, &dest_tree, false),
+        SyncMode::Mixed => calc_diff_soft(&src_tree, &dest_tree, true),
+        SyncMode::Hard => calc_diff_hard(&src_tree, &dest_tree),
+    };
     remove_diff(rem_diff, dest, verbose);
     apply_diff(add_diff, src, dest, verbose);
     Ok(())
