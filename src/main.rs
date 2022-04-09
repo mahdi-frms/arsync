@@ -48,6 +48,9 @@ fn main() {
         .canonicalize()
         .unwrap_or_else(|_| err(ERR_SRC));
 
+    let src_ignore = std::fs::read_to_string(src.join(".arsygnore")).ok();
+    let dest_ignore = std::fs::read_to_string(dest.join(".arsygnore")).ok();
+
     if std::fs::metadata(&src)
         .unwrap_or_else(|_| err(ERR_SRC))
         .is_file()
@@ -76,7 +79,7 @@ fn main() {
         SyncMode::Mixed
     };
 
-    if let Err(index) = sync_dirs(&src, &dest, args.verbose, mode) {
+    if let Err(index) = sync_dirs(&src, &dest, src_ignore, dest_ignore, args.verbose, mode) {
         if index == 1 {
             err(ERR_SRC);
         } else {

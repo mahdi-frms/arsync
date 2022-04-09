@@ -77,7 +77,25 @@ impl Drop for TestDir {
 }
 
 fn test_sync_dir(src: PathBuf, dest: PathBuf, mode: SyncMode) {
-    sync_dirs(&src, &dest, true, mode).unwrap();
+    sync_dirs(&src, &dest, None, None, true, mode).unwrap();
+}
+
+fn test_sync_dir_ignore(
+    src: PathBuf,
+    dest: PathBuf,
+    mode: SyncMode,
+    src_ignore: &str,
+    dest_ignore: &str,
+) {
+    sync_dirs(
+        &src,
+        &dest,
+        Some(String::from(src_ignore)),
+        Some(String::from(dest_ignore)),
+        true,
+        mode,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -256,4 +274,81 @@ fn sync_update() {
     assert!(test_dir.file_c("dest/b/b1", "b1c+"));
     assert!(test_dir.count("dest/") == 2);
     assert!(test_dir.count("dest/b") == 1);
+}
+
+#[test]
+fn src_ingore() {
+    let test_dir = TestDir::acquire();
+    // src
+    test_dir.pushf("src/a", "ac");
+    test_dir.pushf("src/b", "bc");
+    test_dir.pushf("src/c", "cc");
+    // dest
+    test_dir.pushd("dest");
+
+    test_sync_dir_ignore(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Mixed,
+        "c",
+        "",
+    );
+
+    assert!(test_dir.file_c("dest/a", "ac"));
+    assert!(test_dir.file_c("dest/b", "bc"));
+    assert!(test_dir.count("dest/") == 2);
+}
+
+#[test]
+fn src_ingore_subdir() {
+    let test_dir = TestDir::acquire();
+    // src
+    test_dir.pushf("src/a", "ac");
+    test_dir.pushd("src/v");
+    test_dir.pushf("src/b", "bc");
+    test_dir.pushf("src/c", "cc");
+    test_dir.pushf("src/d/d1", "d1c");
+    test_dir.pushf("src/d/d2", "d2c");
+    // dest
+    test_dir.pushd("dest");
+
+    test_sync_dir_ignore(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Mixed,
+        "c\nd",
+        "",
+    );
+
+    assert!(test_dir.file_c("dest/a", "ac"));
+    assert!(test_dir.file_c("dest/b", "bc"));
+    assert!(test_dir.dir("dest/v"));
+    assert!(test_dir.count("dest/") == 3);
+}
+
+#[test]
+fn dest_ingore_subdir() {
+    let test_dir = TestDir::acquire();
+    // src
+    test_dir.pushf("src/a", "ac+");
+    test_dir.pushf("src/b", "bc+");
+    test_dir.pushf("src/c", "cc+");
+    test_dir.pushf("src/d", "dc+");
+    // dest
+    test_dir.pushf("dest/a", "ac");
+    test_dir.pushf("dest/b", "bc");
+    test_dir.pushf("dest/c", "cc");
+
+    test_sync_dir_ignore(
+        test_dir.relative("src"),
+        test_dir.relative("dest"),
+        SyncMode::Update,
+        "",
+        "c",
+    );
+
+    assert!(test_dir.file_c("dest/a", "ac+"));
+    assert!(test_dir.file_c("dest/b", "bc+"));
+    assert!(test_dir.file_c("dest/c", "cc"));
+    assert!(test_dir.count("dest/") == 3);
 }

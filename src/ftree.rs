@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 pub struct FnodeFile {
@@ -91,6 +91,40 @@ impl FnodeDir {
 
     pub fn entirity(&self) -> bool {
         self.entirity
+    }
+
+    fn index(&mut self, name: &String) -> Option<usize> {
+        self.children.iter_mut().position(|(n, _)| *n == *name)
+    }
+
+    pub fn remove_path(&mut self, path: PathBuf, isdir: bool) -> Result<(), ()> {
+        let mut iter = path.iter().peekable();
+        let field = iter.next().ok_or(())?.to_str().ok_or(())?.to_string();
+
+        if iter.peek().is_some() {
+            match self.subdir(&field) {
+                Some(dir) => {
+                    let mut dir = dir.clone();
+                    dir.remove_path(iter.collect(), isdir)?;
+                    let prev_index = self.index(&field).ok_or(())?;
+                    self.children.remove(prev_index);
+                    self.append_dir(field, dir);
+                }
+                None => return Err(()),
+            }
+        } else {
+            if !isdir {
+                if self.file(&field).is_some() {
+                    let prev_index = self.index(&field).ok_or(())?;
+                    self.children.remove(prev_index);
+                }
+            }
+            if self.subdir(&field).is_some() {
+                let prev_index = self.index(&field).ok_or(())?;
+                self.children.remove(prev_index);
+            }
+        }
+        Ok(())
     }
 }
 

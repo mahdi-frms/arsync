@@ -272,9 +272,31 @@ fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
     tp.wait();
 }
 
-pub fn sync_dirs(src: &PathBuf, dest: &PathBuf, verbose: bool, mode: SyncMode) -> Result<(), u8> {
-    let src_tree = traverse_dir(src).ok_or(1)?;
-    let dest_tree = traverse_dir(dest).ok_or(2)?;
+pub fn arsygnore_parse(dir: &mut FnodeDir, text: String) {
+    for l in text.lines() {
+        let l = l.trim();
+        if let Some(last) = l.chars().last() {
+            let _ = dir.remove_path(PathBuf::from(l), last == '/');
+        }
+    }
+}
+
+pub fn sync_dirs(
+    src: &PathBuf,
+    dest: &PathBuf,
+    src_ignore: Option<String>,
+    dest_ignore: Option<String>,
+    verbose: bool,
+    mode: SyncMode,
+) -> Result<(), u8> {
+    let mut src_tree = traverse_dir(src).ok_or(1)?;
+    if let Some(text) = src_ignore {
+        arsygnore_parse(&mut src_tree, text);
+    }
+    let mut dest_tree = traverse_dir(dest).ok_or(2)?;
+    if let Some(text) = dest_ignore {
+        arsygnore_parse(&mut dest_tree, text);
+    }
     let (add_diff, rem_diff) = match mode {
         SyncMode::Soft => calc_diff_soft(&src_tree, &dest_tree, false),
         SyncMode::Mixed => calc_diff_soft(&src_tree, &dest_tree, true),
