@@ -168,18 +168,17 @@ fn remove_diff_node(node: Arc<Fnode>, dest: PathBuf, verbose: bool) -> BoxFuture
                 }
             }
             Fnode::Dir(d) => {
+                futures::future::join_all(d.children().iter().map(|(n, c)| {
+                    let c = c.clone();
+                    let dest = dest.join(n);
+                    remove_diff_node(c, dest, verbose)
+                }))
+                .await;
                 if d.entirity() {
-                    if std::fs::remove_dir_all(&dest).is_ok() && verbose {
+                    if std::fs::remove_dir(&dest).is_ok() && verbose {
                         if let Some(path) = dest.to_str() {
                             println!("directory {} was removed", path);
                         }
-                    }
-                } else {
-                    for (name, node) in d.children() {
-                        let node = node.clone();
-                        let mut dest = dest.clone();
-                        dest.push(name);
-                        remove_diff_node(node.clone(), dest, verbose).await;
                     }
                 }
             }
