@@ -211,14 +211,15 @@ fn apply_diff_node(
             }
             Fnode::Dir(d) => {
                 if !d.entirity() || tokio::fs::create_dir(&dest).await.is_ok() {
-                    for (n, c) in d.children() {
+                    futures::future::join_all(d.children().iter().map(|(n, c)| {
+                        let n = n.clone();
+                        let c = c.clone();
+                        let src = src.join(&n);
+                        let dest = dest.join(&n);
                         let node = c.clone();
-                        let mut src = src.clone();
-                        let mut dest = dest.clone();
-                        src.push(n);
-                        dest.push(n);
-                        apply_diff_node(node, src, dest, verbose).await;
-                    }
+                        apply_diff_node(node, src, dest, verbose)
+                    }))
+                    .await;
                 }
             }
         }
