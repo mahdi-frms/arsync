@@ -161,7 +161,7 @@ fn remove_diff_node(node: Arc<Fnode>, dest: PathBuf, verbose: bool) -> BoxFuture
     async move {
         match node.as_ref() {
             Fnode::File(_) => {
-                if std::fs::remove_file(&dest).is_ok() && verbose {
+                if tokio::fs::remove_file(&dest).await.is_ok() && verbose {
                     if let Some(path) = dest.to_str() {
                         println!("file {} was removed", path);
                     }
@@ -175,7 +175,7 @@ fn remove_diff_node(node: Arc<Fnode>, dest: PathBuf, verbose: bool) -> BoxFuture
                 }))
                 .await;
                 if d.entirity() {
-                    if std::fs::remove_dir(&dest).is_ok() && verbose {
+                    if tokio::fs::remove_dir(&dest).await.is_ok() && verbose {
                         if let Some(path) = dest.to_str() {
                             println!("directory {} was removed", path);
                         }
