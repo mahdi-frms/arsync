@@ -76,11 +76,13 @@ impl Drop for TestDir {
     }
 }
 
-fn test_sync_dir(src: PathBuf, dest: PathBuf, mode: SyncMode) {
-    sync_dirs(&src, &dest, None, None, true, mode).unwrap();
+async fn test_sync_dir(src: PathBuf, dest: PathBuf, mode: SyncMode) {
+    sync_dirs(&src, &dest, None, None, true, mode)
+        .await
+        .unwrap();
 }
 
-fn test_sync_dir_ignore(
+async fn test_sync_dir_ignore(
     src: PathBuf,
     dest: PathBuf,
     mode: SyncMode,
@@ -95,11 +97,12 @@ fn test_sync_dir_ignore(
         true,
         mode,
     )
+    .await
     .unwrap();
 }
 
-#[test]
-fn sync_file() {
+#[tokio::test]
+async fn sync_file() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/");
@@ -110,13 +113,14 @@ fn sync_file() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.file("dest/a"));
 }
 
-#[test]
-fn sync_multiple_files() {
+#[tokio::test]
+async fn sync_multiple_files() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/");
@@ -129,15 +133,16 @@ fn sync_multiple_files() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac"));
     assert!(test_dir.file_c("dest/b", "bc"));
     assert!(test_dir.file_c("dest/c", "cc"));
 }
 
-#[test]
-fn sync_dir() {
+#[tokio::test]
+async fn sync_dir() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/");
@@ -148,13 +153,14 @@ fn sync_dir() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.dir("dest/b"));
 }
 
-#[test]
-fn sync_recursively() {
+#[tokio::test]
+async fn sync_recursively() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/d");
@@ -165,13 +171,14 @@ fn sync_recursively() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.file("dest/d/a"));
 }
 
-#[test]
-fn sync_recursively_deep() {
+#[tokio::test]
+async fn sync_recursively_deep() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/d/r");
@@ -182,30 +189,34 @@ fn sync_recursively_deep() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.file("dest/d/r/a"));
 }
 
-#[test]
-fn sync_soft() {
+#[tokio::test]
+async fn sync_soft() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/a");
     // src
     test_dir.pushf("src/a", "");
+    test_dir.pushf("src/b", "");
 
     test_sync_dir(
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Soft,
-    );
+    )
+    .await;
 
     assert!(test_dir.dir("dest/a"));
+    assert!(test_dir.file("dest/b"));
 }
 
-#[test]
-fn sync_mixed() {
+#[tokio::test]
+async fn sync_mixed() {
     let test_dir = TestDir::acquire();
     // dest
     test_dir.pushd("dest/a");
@@ -216,13 +227,14 @@ fn sync_mixed() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Mixed,
-    );
+    )
+    .await;
 
     assert!(test_dir.file("dest/a"));
 }
 
-#[test]
-fn sync_hard() {
+#[tokio::test]
+async fn sync_hard() {
     let test_dir = TestDir::acquire();
     // src
     test_dir.pushf("src/a", "ac+");
@@ -240,7 +252,8 @@ fn sync_hard() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Hard,
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac+"));
     assert!(test_dir.file_c("dest/b/b1", "b1c"));
@@ -251,8 +264,8 @@ fn sync_hard() {
     assert!(test_dir.count("dest/d") == 1);
 }
 
-#[test]
-fn sync_update() {
+#[tokio::test]
+async fn sync_update() {
     let test_dir = TestDir::acquire();
     // src
     test_dir.pushf("src/a", "ac+");
@@ -268,7 +281,8 @@ fn sync_update() {
         test_dir.relative("src"),
         test_dir.relative("dest"),
         SyncMode::Update,
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac+"));
     assert!(test_dir.file_c("dest/b/b1", "b1c+"));
@@ -276,8 +290,8 @@ fn sync_update() {
     assert!(test_dir.count("dest/b") == 1);
 }
 
-#[test]
-fn src_ingore() {
+#[tokio::test]
+async fn src_ingore() {
     let test_dir = TestDir::acquire();
     // src
     test_dir.pushf("src/a", "ac");
@@ -292,15 +306,16 @@ fn src_ingore() {
         SyncMode::Mixed,
         "c",
         "",
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac"));
     assert!(test_dir.file_c("dest/b", "bc"));
     assert!(test_dir.count("dest/") == 2);
 }
 
-#[test]
-fn src_ingore_subdir() {
+#[tokio::test]
+async fn src_ingore_subdir() {
     let test_dir = TestDir::acquire();
     // src
     test_dir.pushf("src/a", "ac");
@@ -318,7 +333,8 @@ fn src_ingore_subdir() {
         SyncMode::Mixed,
         "c\nd",
         "",
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac"));
     assert!(test_dir.file_c("dest/b", "bc"));
@@ -326,8 +342,8 @@ fn src_ingore_subdir() {
     assert!(test_dir.count("dest/") == 3);
 }
 
-#[test]
-fn dest_ingore_subdir() {
+#[tokio::test]
+async fn dest_ingore_subdir() {
     let test_dir = TestDir::acquire();
     // src
     test_dir.pushf("src/a", "ac+");
@@ -345,7 +361,8 @@ fn dest_ingore_subdir() {
         SyncMode::Update,
         "",
         "c",
-    );
+    )
+    .await;
 
     assert!(test_dir.file_c("dest/a", "ac+"));
     assert!(test_dir.file_c("dest/b", "bc+"));

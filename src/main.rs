@@ -35,7 +35,8 @@ fn err(str: &str) -> ! {
 const ERR_SRC: &str = "Error: invalid source directory";
 const ERR_DEST: &str = "Error: invalid destination directory";
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
     let src = args
         .src
@@ -79,7 +80,7 @@ fn main() {
         SyncMode::Mixed
     };
 
-    if let Err(index) = sync_dirs(&src, &dest, src_ignore, dest_ignore, args.verbose, mode) {
+    if let Err(index) = sync_dirs(&src, &dest, src_ignore, dest_ignore, args.verbose, mode).await {
         if index == 1 {
             err(ERR_SRC);
         } else {

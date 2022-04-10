@@ -1,44 +1,15 @@
 mod ftree;
 
 use ftree::{Fnode, FnodeDir, FnodeFile};
-use threadpool::ThreadPool;
+use futures::{future::BoxFuture, FutureExt};
 
-use std::{
-    fs::read_dir,
-    path::PathBuf,
-    sync::{atomic::AtomicIsize, Arc, Barrier},
-    time::SystemTime,
-};
+use std::{fs::read_dir, path::PathBuf, sync::Arc, time::SystemTime};
 
 pub enum SyncMode {
     Mixed,
     Soft,
     Hard,
     Update,
-}
-
-#[derive(Clone)]
-struct TaskPool {
-    thpool: ThreadPool,
-    barrier: Arc<Barrier>,
-    count: Arc<AtomicIsize>,
-}
-
-impl TaskPool {
-    fn new() -> TaskPool {
-        TaskPool {
-            thpool: ThreadPool::default(),
-            barrier: Arc::new(Barrier::new(2)),
-            count: Arc::new(AtomicIsize::new(0)),
-        }
-    }
-    fn wait(&self) {
-        self.barrier.wait();
-    }
-    fn counter_add(&self, c: isize) -> isize {
-        let prev = self.count.fetch_add(c, std::sync::atomic::Ordering::SeqCst);
-        prev + c
-    }
 }
 
 fn traverse_dir(dir: &PathBuf) -> Option<FnodeDir> {
@@ -186,90 +157,79 @@ fn calc_diff_soft(src: &FnodeDir, dest: &FnodeDir, mixed: bool) -> (FnodeDir, Fn
     (diff_add, diff_rem)
 }
 
-fn remove_diff_node(tp: TaskPool, node: Arc<Fnode>, dest: PathBuf, verbose: bool) {
-    match node.as_ref() {
-        Fnode::File(_) => {
-            if std::fs::remove_file(&dest).is_ok() && verbose {
-                if let Some(path) = dest.to_str() {
-                    println!("file {} was removed", path);
-                }
-            }
-        }
-        Fnode::Dir(d) => {
-            if d.entirity() {
-                if std::fs::remove_dir_all(&dest).is_ok() && verbose {
+fn remove_diff_node(node: Arc<Fnode>, dest: PathBuf, verbose: bool) -> BoxFuture<'static, ()> {
+    async move {
+        match node.as_ref() {
+            Fnode::File(_) => {
+                if std::fs::remove_file(&dest).is_ok() && verbose {
                     if let Some(path) = dest.to_str() {
-                        println!("directory {} was removed", path);
+                        println!("file {} was removed", path);
                     }
                 }
-            } else {
-                for (name, node) in d.children() {
-                    let tp_clone = tp.clone();
-                    let node = node.clone();
-                    let mut dest = dest.clone();
-                    tp.counter_add(1);
-                    dest.push(name);
-                    tp.thpool
-                        .execute(move || remove_diff_node(tp_clone, node.clone(), dest, verbose));
+            }
+            Fnode::Dir(d) => {
+                if d.entirity() {
+                    if std::fs::remove_dir_all(&dest).is_ok() && verbose {
+                        if let Some(path) = dest.to_str() {
+                            println!("directory {} was removed", path);
+                        }
+                    }
+                } else {
+                    for (name, node) in d.children() {
+                        let node = node.clone();
+                        let mut dest = dest.clone();
+                        dest.push(name);
+                        remove_diff_node(node.clone(), dest, verbose).await;
+                    }
                 }
             }
         }
     }
-    if tp.counter_add(-1) == 0 {
-        tp.wait();
-    }
+    .boxed()
 }
 
-fn remove_diff(diff: FnodeDir, dest: &PathBuf, verbose: bool) {
-    let tp = TaskPool::new();
-    let tp_clone = tp.clone();
+async fn remove_diff(diff: FnodeDir, dest: &PathBuf, verbose: bool) {
     let dest = dest.clone();
-    tp.counter_add(1);
-    tp.thpool
-        .execute(move || remove_diff_node(tp_clone, Arc::new(Fnode::Dir(diff)), dest, verbose));
-    tp.wait();
+    remove_diff_node(Arc::new(Fnode::Dir(diff)), dest, verbose).await;
 }
 
-fn apply_diff_node(tp: TaskPool, node: Arc<Fnode>, src: PathBuf, dest: PathBuf, verbose: bool) {
-    match node.as_ref() {
-        Fnode::File(_) => {
-            if std::fs::copy(&src, &dest).is_ok() && verbose {
-                (|| {
-                    println!("copied file {} to {}", src.to_str()?, dest.to_str()?);
-                    Some(())
-                })();
+fn apply_diff_node(
+    node: Arc<Fnode>,
+    src: PathBuf,
+    dest: PathBuf,
+    verbose: bool,
+) -> BoxFuture<'static, ()> {
+    async move {
+        match node.as_ref() {
+            Fnode::File(_) => {
+                if tokio::fs::copy(&src, &dest).await.is_ok() && verbose {
+                    (|| {
+                        println!("copied file {} to {}", src.to_str()?, dest.to_str()?);
+                        Some(())
+                    })();
+                }
             }
-        }
-        Fnode::Dir(d) => {
-            if !d.entirity() || std::fs::create_dir(&dest).is_ok() {
-                for (n, c) in d.children() {
-                    let tp_clone = tp.clone();
-                    let node = c.clone();
-                    let mut src = src.clone();
-                    let mut dest = dest.clone();
-                    src.push(n);
-                    dest.push(n);
-                    tp.counter_add(1);
-                    tp.thpool
-                        .execute(move || apply_diff_node(tp_clone, node, src, dest, verbose));
+            Fnode::Dir(d) => {
+                if !d.entirity() || tokio::fs::create_dir(&dest).await.is_ok() {
+                    for (n, c) in d.children() {
+                        let node = c.clone();
+                        let mut src = src.clone();
+                        let mut dest = dest.clone();
+                        src.push(n);
+                        dest.push(n);
+                        apply_diff_node(node, src, dest, verbose).await;
+                    }
                 }
             }
         }
     }
-    if tp.counter_add(-1) == 0 {
-        tp.wait();
-    }
+    .boxed()
 }
 
-fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
-    let tp = TaskPool::new();
+async fn apply_diff(diff: FnodeDir, src: &PathBuf, dest: &PathBuf, verbose: bool) {
     let src = src.clone();
     let dest = dest.clone();
-    tp.counter_add(1);
-    let tp_clone = tp.clone();
-    tp.thpool
-        .execute(move || apply_diff_node(tp_clone, Arc::new(Fnode::Dir(diff)), src, dest, verbose));
-    tp.wait();
+    apply_diff_node(Arc::new(Fnode::Dir(diff)), src, dest, verbose).await;
 }
 
 pub fn arsygnore_parse(dir: &mut FnodeDir, text: String) {
@@ -281,7 +241,7 @@ pub fn arsygnore_parse(dir: &mut FnodeDir, text: String) {
     }
 }
 
-pub fn sync_dirs(
+pub async fn sync_dirs(
     src: &PathBuf,
     dest: &PathBuf,
     src_ignore: Option<String>,
@@ -303,7 +263,7 @@ pub fn sync_dirs(
         SyncMode::Hard => calc_diff_hard(&src_tree, &dest_tree),
         SyncMode::Update => (calc_diff_update(&src_tree, &dest_tree), FnodeDir::default()),
     };
-    remove_diff(rem_diff, dest, verbose);
-    apply_diff(add_diff, src, dest, verbose);
+    remove_diff(rem_diff, dest, verbose).await;
+    apply_diff(add_diff, src, dest, verbose).await;
     Ok(())
 }
