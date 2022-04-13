@@ -1,8 +1,10 @@
+mod daemon;
 mod ftree;
 
 use ftree::{Fnode, FnodeDir, FnodeFile};
 use futures::{future::BoxFuture, FutureExt};
 
+pub use daemon::run_daemon;
 use std::{fs::read_dir, path::PathBuf, sync::Arc, time::SystemTime};
 
 pub enum SyncMode {
