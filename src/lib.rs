@@ -1,5 +1,9 @@
+mod client;
 mod daemon;
 mod ftree;
+mod message;
+
+pub use message::Messenger;
 
 use ftree::{Fnode, FnodeDir, FnodeFile};
 use futures::{future::BoxFuture, FutureExt};
